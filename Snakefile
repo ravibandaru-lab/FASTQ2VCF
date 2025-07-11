@@ -236,7 +236,9 @@ rule apply_bqsr:
     shell:
         """
         gatk ApplyBQSR -R {input.fasta} -I {input.bam} \
-            --bqsr-recal-file {input.table} -O {output.bam} --create-output-bam-index 2>&1 | tee {log}
+            --bqsr-recal-file {input.table} -O {output.bam} 2>&1 | tee {log}
+        
+        samtools index -b {output.bam} {output.bai}
         """
 
 rule haplotype_caller:

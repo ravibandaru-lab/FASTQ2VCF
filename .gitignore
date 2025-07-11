@@ -10,3 +10,5 @@ tmp
 trimmed
 ubam
 dedup
+feature_counts
+gvcfs
