@@ -118,7 +118,7 @@ The FASTQ2VCF pipeline generates the following output files for each sample and 
 - `featureCounts` summary file: `feature_counts/{sample}.txt.summary`
 - Custom Statistics: `feature_counts/{sample}.stats.txt`
 > [!NOTE]
-> Currently, the custom statistics reported are total genes, average length of gene, and average read count per gene. This is not normalized and does not account for gene biotype or GC content.
+> Currently, the custom statistics reported are total genes, average length of gene, and average read count per gene. This is not normalized and does not account for GC content.
 - GVCF Output for Each Sample: `gvcfs/{sample}.g.vcf.gz`, `gvcfs/{sample}.g.vcf.gz.tbi`
 - Joint Calling Output: `joint_genotyping/genotyped.vcf.gz`
 - VQSR Intermediate Files:
