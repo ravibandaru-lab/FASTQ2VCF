@@ -81,6 +81,7 @@ snakemake --cores {cores}
 ```
 
 ## Pipeline Diagram
+<img width="1082" height="1395" alt="Screenshot 2025-07-11 at 1 31 05 PM" src="https://github.com/user-attachments/assets/4009190f-e9a2-4eca-abb9-5a8b4bcedfe7" />
 
 
 ## Pipeline Outputs
