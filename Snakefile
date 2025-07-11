@@ -202,6 +202,7 @@ rule mark_duplicates:
         """
         mkdir -p dedup logs/mark_duplicates
         gatk MarkDuplicatesSpark -I {input.bam} -O {output.bam} --TMP_DIR tmp 2>&1 | tee {log}
+        samtools index {output.bam}
         """
 
 rule base_recalibrator:

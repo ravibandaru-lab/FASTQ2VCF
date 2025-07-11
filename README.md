@@ -81,6 +81,7 @@ snakemake --cores {cores}
 ```
 
 ## Pipeline Diagram
+<img width="1082" height="1395" alt="Screenshot 2025-07-11 at 1 31 05 PM" src="https://github.com/user-attachments/assets/4009190f-e9a2-4eca-abb9-5a8b4bcedfe7" />
 
 
 ## Pipeline Outputs
@@ -117,7 +118,7 @@ The FASTQ2VCF pipeline generates the following output files for each sample and 
 - `featureCounts` summary file: `feature_counts/{sample}.txt.summary`
 - Custom Statistics: `feature_counts/{sample}.stats.txt`
 > [!NOTE]
-> Currently, the custom statistics reported are total genes, average length of gene, and average read count per gene. This is not normalized and does not account for gene biotype or GC content.
+> Currently, the custom statistics reported are total genes, average length of gene, and average read count per gene. This is not normalized and does not account for GC content.
 - GVCF Output for Each Sample: `gvcfs/{sample}.g.vcf.gz`, `gvcfs/{sample}.g.vcf.gz.tbi`
 - Joint Calling Output: `joint_genotyping/genotyped.vcf.gz`
 - VQSR Intermediate Files:
