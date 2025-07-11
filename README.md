@@ -1,8 +1,10 @@
 # <img alt="a bear" src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEg1ypWFO_NxVSMG2lbfE-gqHb8FNIF6nwjMG-A1GkTJJvTJTKhqe1fjmbQ_82O4SHPL_cqUBdT-vkcBXG1gjMC63bMHUv6wKCbKRY170aKXfukHlumOFg198kMJoEy7NJKVuEdiGITHmaYn/s800/animal_bear_character.png" height="60"> FASTQ2VCF
+
 A Snakemake-based pipeline for variant calling that processes paired-end FASTQ files and generates filtered VCF files using standard bioinformatics tools (e.g., BWA, Samtools, GATK).
 
 > [!CAUTION]
 > This pipeline calls variants separately in each sample. Make sure this fits your usecase. If you want to call variants across multiple samples simultaneously (i.e. Group1 vs. Group2), reach out to me to modify the pipeline.
+
 ## Installation
 
 #### Prerequsites
