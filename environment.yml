@@ -91,6 +91,7 @@ dependencies:
   - pango=1.56.4=hadf4263_0
   - pcre2=10.45=hc749103_0
   - perl=5.32.1=7_hd590300_perl5
+  - picard=2.27.5=hdfd78af_0
   - pip=25.1.1=pyh8b19718_0
   - pixman=0.46.2=h29eaf8c_0
   - pthread-stubs=0.4=hb9d3cd8_1002

@@ -1,9 +1,6 @@
 # <img alt="a bear" src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEg1ypWFO_NxVSMG2lbfE-gqHb8FNIF6nwjMG-A1GkTJJvTJTKhqe1fjmbQ_82O4SHPL_cqUBdT-vkcBXG1gjMC63bMHUv6wKCbKRY170aKXfukHlumOFg198kMJoEy7NJKVuEdiGITHmaYn/s800/animal_bear_character.png" height="60"> FASTQ2VCF
 
-A Snakemake-based pipeline for variant calling that processes paired-end FASTQ files and generates filtered VCF files using standard bioinformatics tools (e.g., BWA, Samtools, GATK).
-
-> [!CAUTION]
-> This pipeline calls variants separately in each sample. Make sure this fits your usecase. If you want to call variants across multiple samples simultaneously (i.e. Group1 vs. Group2), reach out to me to modify the pipeline.
+A Snakemake-based pipeline for germline short variant discovery that processes paired-end FASTQ files and generates filtered VCF files using standard bioinformatics tools (e.g., BWA, Samtools, GATK).
 
 ## Installation
 
@@ -32,6 +29,16 @@ Create a folder-structure as follows:
 		└── Gene_Annotation.gtf
 	└── reference
 		└── hg38.fa
+		└── known_sites.vcf.gz
+		└── known_sites.vcf.gz.tbi
+		└── known_indels.vcf.gz
+		└── known_indels.vcf.gz.tbi
+		└── 1000G.vcf.gz
+		└── 1000G.vcf.gz.tbi
+		└── hapmap.vcf.gz
+		└── hapmap.vcf.gz.tbi
+		└── omni.vcf.gz
+		└── omni.vcf.gz.tbi
 	└── dag.pdf
 	└── environment.yml
 	└── LICENSE
@@ -41,14 +48,28 @@ Create a folder-structure as follows:
 When I was testing the pipeline:
 - `Gene_Annotation.gtf`: I downloaded the comprehensive gene annotation, `gencode.v48.annotation.gtf`, from GENCODE [here](https://www.gencodegenes.org/human/).
 - `hg38.fa`: I downloaded the reference genome for hg38 [here](https://hgdownload.soe.ucsc.edu/goldenpath/hg38/bigZips/). Then `gunzip` to get .fa file.
-
-#### Index the Genomes
+- `known_sites.vcf.gz(.tbi) and known_indels.vcf.gz(.tbi)`: 
 ```bash
-cd reference
-samtools faidx hg38.fa
-bwa index hg38.fa
-gatk CreateSequenceDictionary -R hg38.fa -O hg38.dict
-cd ../
+# Download dbSNP (SNPs only)
+wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/Homo_sapiens_assembly38.dbsnp138.vcf -O reference/known_sites.vcf
+bgzip reference/known_sites.vcf
+tabix -p vcf reference/known_sites.vcf.gz
+
+# Download Mills and 1000G gold indels
+wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz -O reference/known_indels.vcf.gz
+wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz.tbi -O reference/known_indels.vcf.gz.tbi
+
+#1000G
+wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/1000G_phase1.snps.high_confidence.hg38.vcf.gz -O reference/1000G.vcf.gz
+wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/1000G_phase1.snps.high_confidence.hg38.vcf.gz.tbi -O reference/1000G.vcf.gz.tbi
+
+# HapMap
+wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/hapmap_3.3.hg38.vcf.gz -O reference/hapmap.vcf.gz
+wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/hapmap_3.3.hg38.vcf.gz.tbi -O reference/hapmap.vcf.gz.tbi
+
+# Omni
+wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/1000G_omni2.5.hg38.vcf.gz -O reference/omni.vcf.gz
+wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/1000G_omni2.5.hg38.vcf.gz.tbi -O reference/omni.vcf.gz.tbi
 ```
 
 #### Modify the Snakefile
@@ -60,9 +81,19 @@ snakemake --cores {cores}
 ```
 
 ## Pipeline Diagram
-See `dag.pdf`
+
 
 ## Pipeline Outputs
+
+1. **Quality Control**: FastQC analysis before and after trimming
+2. **Read Preprocessing**: Trimmomatic adapter removal and quality trimming
+3. **Alignment**: BWA-MEM alignment with read group information
+4. **BAM Processing**: Duplicate marking and base quality score recalibration (BQSR)
+5. **Variant Calling**: HaplotypeCaller in GVCF mode
+6. **Joint Genotyping**: GenomicsDBImport followed by GenotypeGVCFs
+7. **Variant Filtering**: VQSR for both SNPs and INDELs
+8. **Gene Expression**: FeatureCounts for read quantification
+
 The FASTQ2VCF pipeline generates the following output files for each sample and reference genome combination:
 
 - Raw FASTQ QC: `fastqc/pre/{sample}.R1_fastqc.html`, `fastqc/pre/{sample}.R2_fastqc.html`
@@ -76,19 +107,25 @@ The FASTQ2VCF pipeline generates the following output files for each sample and 
 > [!IMPORTANT]
 > This pipeline currently supports paired-end sequencing data only. For each sample, both {sample}.R1.fastq.gz and {sample}.R2.fastq.gz files are required. Single-end data or unpaired reads will not be processed for alignment. Make sure this fits your usecase.
 
-- Raw Aligned BAM: `bam/{sample}.{ref_genome}.raw.bam`
-- Sorted and Indexed BAM: `bam/{sample}.{ref_genome}.sorted.bam`, `bam/{sample}.{ref_genome}.sorted.bam.bai`
-- Filtered BAM (MAPQ ≥ 30; autosomes + chrX only): `bam/{sample}.{ref_genome}.filtered.bam`, `bam/{sample}.{ref_genome}.filtered.bam.bai`
+- Raw Unaligned BAM: `ubam/{sample}.ubam.bam`
+- Merged BAM: `alignment/{sample}.merged.bam`
+- Deduplicated BAM: `dedup/{sample}.dedup.bam`, `dedup/{sample}.dedup.bam.bai`
+- Recalibrated BAM (BQSR): `bqsr/{sample}.recalibrated.bam`, `bqsr/{sample}.recalibrated.bam.bai`
 > [!IMPORTANT]
-> This filtered .bam is the one used for feature counting and variant calling. Make sure this fits your usecase.
-- Raw Gene-Level Counts (via `featureCounts`): `feature_counts/{sample}.{ref_genome}.txt`
-- `featureCounts` summary file: `feature_counts/{sample}.{ref_genome}.txt.summary`
-- Custom Statistics: `feature_counts/{sample}.{ref_genome}.stats.txt`
+> This recalibrated .bam is the one used for feature counting and variant calling. 
+- Raw Gene-Level Counts (via `featureCounts`): `feature_counts/{sample}.txt`
+- `featureCounts` summary file: `feature_counts/{sample}.txt.summary`
+- Custom Statistics: `feature_counts/{sample}.stats.txt`
 > [!NOTE]
-> Currently, the custom statistics reported are total genes, average length of gene, and average read count per gene.
-- VCF file with SNP calls: `vcf/{sample}.{ref_genome}.calledSNPs.vcf`
+> Currently, the custom statistics reported are total genes, average length of gene, and average read count per gene. This is not normalized and does not account for gene biotype or GC content.
+- GVCF Output for Each Sample: `gvcfs/{sample}.g.vcf.gz`, `gvcfs/{sample}.g.vcf.gz.tbi`
+- Joint Calling Output: `joint_genotyping/genotyped.vcf.gz`
+- VQSR Intermediate Files:
+  - SNP-filtered VCF: `joint_genotyping/genotyped.filtered.snps.vcf.gz`
+  - VQSR recalibration files: `joint_genotyping/recalibrate_SNP.*`, `joint_genotyping/recalibrate_INDEL.*`
+- Final VQSR-Filtered VCF: `joint_genotyping/genotyped.filtered.vqsr.vcf.gz`
 > [!IMPORTANT]
-> Previously `exactSNP` was used to call the SNPs, but was having a lot of trouble with that, so used `GATK HaplotypeCaller` instead. Only variants with a minimum Phred score of 30 (1 in 1000 chance of being wrong) are emitted. Make sure this fits your usecase.
+> Variant filtering uses VQSR (Variant Quality Score Recalibration) with standard GATK resources. SNPs are filtered at 99.5% sensitivity and INDELs at 99.0% sensitivity. The final output `genotyped.filtered.vqsr.vcf.gz` contains high-quality variants suitable for downstream analysis.
 ## Contact
 - Ravi Bandaru: ravi14.bandaru@gmail.com
 
