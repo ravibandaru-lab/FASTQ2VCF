@@ -20,10 +20,15 @@ VQSR_RESOURCES = {
     "mills": "reference/known_indels.vcf.gz"
 }
 
+PON = "reference/1000g_pon.vcf.gz"
+GNOMAD_AF = "reference/gnomad_af_only.vcf.gz"
+
+
 # Default settings
 THREADS = 4
 BWA_CORES = 8
 REF_GENOME = "hg38"
+FUNCOTATOR_DS = "reference/funcotator_dataSources.v1.8.hg38.20230908s"
 
 # Reference genomes
 REFERENCE_GENOMES = {
@@ -55,6 +60,9 @@ rule all:
         expand("joint_genotyping/genotyped.{interval}.vcf.gz", interval=INTERVALS),
         expand("feature_counts/{sample}.txt", sample=SAMPLES),
         expand("feature_counts/{sample}.stats.txt", sample=SAMPLES),
+        expand("mutect2/{sample}.unfiltered.vcf.gz", sample=SAMPLES),
+        expand("mutect2/{sample}.filtered.vcf.gz", sample=SAMPLES),
+        expand("mutect2/{sample}.funcotated.vcf.gz", sample=SAMPLES),
         "joint_genotyping/genotyped.vcf.gz",
         "joint_genotyping/genotyped.filtered.vqsr.vcf.gz"
 
@@ -458,5 +466,129 @@ rule apply_vqsr_indels:
             --create-output-variant-index true \
             -mode INDEL \
             -O {output.vcf_filtered} \
+            2>&1 | tee {log}
+        """
+
+rule mutect2:
+    input:
+        bam="bqsr/{sample}.recalibrated.bam",
+        bai="bqsr/{sample}.recalibrated.bam.bai",
+        fasta=get_ref_genome(),
+        pon=PON,
+        gnomad=GNOMAD_AF
+    output:
+        vcf="mutect2/{sample}.unfiltered.vcf.gz",
+        vcf_index="mutect2/{sample}.unfiltered.vcf.gz.tbi",
+        f1r2="mutect2/{sample}.f1r2.tar.gz"
+    log:
+        "logs/mutect2/{sample}.log"
+    shell:
+        """
+        mkdir -p mutect2 logs/mutect2
+        gatk Mutect2 \
+            -R {input.fasta} \
+            -I {input.bam} \
+            --panel-of-normals {input.pon} \
+            --germline-resource {input.gnomad} \
+            -O {output.vcf} \
+            --f1r2-tar-gz {output.f1r2} \
+            2>&1 | tee {log}
+        """
+
+rule learn_orientation_model:
+    input:
+        f1r2="mutect2/{sample}.f1r2.tar.gz"
+    output:
+        tar="mutect2/{sample}.read-orientation-model.tar.gz"
+    log:
+        "logs/mutect2/{sample}.orientation.log"
+    shell:
+        """
+        gatk LearnReadOrientationModel \
+            -I {input.f1r2} \
+            -O {output.tar} \
+            2>&1 | tee {log}
+        """
+
+rule get_pileup_summaries:
+    input:
+        bam="bqsr/{sample}.recalibrated.bam",
+        bai="bqsr/{sample}.recalibrated.bam.bai",
+        ref="reference/hg38.fa",
+        gnomad="reference/gnomad_af_only.vcf.gz"
+    output:
+        "mutect2/{sample}.pileups.table"
+    params:
+        intervals=" -L ".join(INTERVALS)
+    log:
+        "logs/mutect2/{sample}.pileups.log"
+    shell:
+        """
+        gatk GetPileupSummaries \
+            -I {input.bam} \
+            -V {input.gnomad} \
+            -R {input.ref} \
+            -L {params.intervals} \
+            -O {output} \
+            2>&1 | tee {log}
+        """
+
+rule calculate_contamination:
+    input:
+        pileups="mutect2/{sample}.pileups.table"
+    output:
+        contamination="mutect2/{sample}.contamination.table",
+        segments="mutect2/{sample}.segments.table"
+    log:
+        "logs/mutect2/{sample}.contamination.log"
+    shell:
+        """
+        gatk CalculateContamination \
+            -I {input.pileups} \
+            -O {output.contamination} \
+            --tumor-segmentation {output.segments} \
+            2>&1 | tee {log}
+        """
+
+rule filter_mutect_calls:
+    input:
+        vcf="mutect2/{sample}.unfiltered.vcf.gz",
+        vcf_index="mutect2/{sample}.unfiltered.vcf.gz.tbi",
+        fasta=get_ref_genome(),
+        contamination="mutect2/{sample}.contamination.table",
+        orientation="mutect2/{sample}.read-orientation-model.tar.gz"
+    output:
+        vcf="mutect2/{sample}.filtered.vcf.gz",
+        vcf_index="mutect2/{sample}.filtered.vcf.gz.tbi"
+    log:
+        "logs/mutect2/{sample}.filter.log"
+    shell:
+        """
+        gatk FilterMutectCalls \
+            -V {input.vcf} \
+            -R {input.fasta} \
+            --contamination-table {input.contamination} \
+            --ob-priors {input.orientation} \
+            -O {output.vcf} \
+            2>&1 | tee {log}
+        """
+
+rule funcotator:
+    input:
+        vcf="mutect2/{sample}.filtered.vcf.gz",
+        fasta=get_ref_genome()
+    output:
+        "mutect2/{sample}.funcotated.vcf.gz"
+    log:
+        "logs/mutect2/{sample}.funcotator.log"
+    shell:
+        """
+        gatk Funcotator \
+            -R {input.fasta} \
+            -V {input.vcf} \
+            -O {output} \
+            --output-file-format VCF \
+            --data-sources-path {FUNCOTATOR_DS} \
+            --ref-version hg38 \
             2>&1 | tee {log}
         """
