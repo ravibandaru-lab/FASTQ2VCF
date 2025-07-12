@@ -16,7 +16,6 @@ $ wget https://anaconda.org/bioconda/gatk4/4.6.2.0/download/noarch/gatk4-4.6.2.0
 $ conda activate FASTQ2VCF
 $ conda install gatk4-4.6.2.0-py310hdfd78af_0.tar.bz2
 $ gatk FuncotatorDataSourceDownloader --somatic --validate-integrity --extract-after-download --hg38
-$ gatk FuncotatorDataSourceDownloader --germline --validate-integrity --extract-after-download --hg38
 ```
 
 #### Preparing the Pipeline
