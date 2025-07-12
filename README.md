@@ -12,7 +12,9 @@ A Snakemake-based pipeline for germline short variant discovery that processes p
 $ git clone https://github.com/ravibandaru-lab/FASTQ2VCF
 $ cd FASTQ2VCF
 $ conda env create -f environment.yaml
+$ wget https://anaconda.org/bioconda/gatk4/4.6.2.0/download/noarch/gatk4-4.6.2.0-py310hdfd78af_0.tar.bz2
 $ conda activate FASTQ2VCF
+$ conda install gatk4-4.6.2.0-py310hdfd78af_0.tar.bz2
 ```
 
 #### Preparing the Pipeline
@@ -48,7 +50,7 @@ Create a folder-structure as follows:
 When I was testing the pipeline:
 - `Gene_Annotation.gtf`: I downloaded the comprehensive gene annotation, `gencode.v48.annotation.gtf`, from GENCODE [here](https://www.gencodegenes.org/human/).
 - `hg38.fa`: I downloaded the reference genome for hg38 [here](https://hgdownload.soe.ucsc.edu/goldenpath/hg38/bigZips/). Then `gunzip` to get .fa file.
-- `known_sites.vcf.gz(.tbi) and known_indels.vcf.gz(.tbi)`: 
+- `known_sites.vcf.gz(.tbi)` and `known_indels.vcf.gz(.tbi)`: 
 ```bash
 # Download dbSNP (SNPs only)
 wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/Homo_sapiens_assembly38.dbsnp138.vcf -O reference/known_sites.vcf
@@ -73,7 +75,7 @@ wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0
 ```
 
 #### Modify the Snakefile
-Go to the `Snakefile` and change `THREADS`, `GENE_ANNOTATION`, and `BWA_CORES` as per your constraints. I run on a `64` core machine, so my settings reflect that.
+Go to the `Snakefile` and change `THREADS`, `GENE_ANNOTATION`, `BWA_CORES`, and `INTERVALS` as per your constraints. I run on a `64` core machine, so my settings reflect that.
 
 ## Running the Pipeline
 ```bash
@@ -120,7 +122,7 @@ The FASTQ2VCF pipeline generates the following output files for each sample and 
 > [!NOTE]
 > Currently, the custom statistics reported are total genes, average length of gene, and average read count per gene. This is not normalized and does not account for GC content.
 - GVCF Output for Each Sample: `gvcfs/{sample}.g.vcf.gz`, `gvcfs/{sample}.g.vcf.gz.tbi`
-- Joint Calling Output: `joint_genotyping/genotyped.vcf.gz`
+- Joint Calling Output: `joint_genotyping/genotyped.vcf.gz`, `joint_genotyping/genotyped.{chrom}.vcf.gz`
 - VQSR Intermediate Files:
   - SNP-filtered VCF: `joint_genotyping/genotyped.filtered.snps.vcf.gz`
   - VQSR recalibration files: `joint_genotyping/recalibrate_SNP.*`, `joint_genotyping/recalibrate_INDEL.*`

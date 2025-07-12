@@ -12,3 +12,5 @@ ubam
 dedup
 feature_counts
 gvcfs
+joint_genotyping
+gatk4*

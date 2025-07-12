@@ -2,6 +2,7 @@ import os
 import glob
 from tempfile import TemporaryDirectory
 
+# Directories and files
 READDIR = "fastq"
 ADAPTERS = "adapter/TruSeq3-PE-2.fa"
 GENE_ANNOTATION = "gene_annotation/gencode.v48.annotation.gtf"
@@ -15,15 +16,16 @@ VQSR_RESOURCES = {
     "hapmap": "reference/hapmap.vcf.gz",
     "omni": "reference/omni.vcf.gz",
     "1000g": "reference/1000G.vcf.gz",
-    "dbsnp": "reference/known_sites.vcf.gz",  # dbsnp
-    "mills": "reference/known_indels.vcf.gz"  # mills indels
+    "dbsnp": "reference/known_sites.vcf.gz",
+    "mills": "reference/known_indels.vcf.gz"
 }
 
+# Default settings
 THREADS = 4
 BWA_CORES = 8
-
 REF_GENOME = "hg38"
 
+# Reference genomes
 REFERENCE_GENOMES = {
     "hg38": "reference/hg38.fa",
 }
@@ -31,31 +33,29 @@ REFERENCE_GENOMES = {
 def get_ref_genome(ref=REF_GENOME):
     return REFERENCE_GENOMES.get(ref, f"reference/{ref}.fa")
 
+# Samples and intervals
 r1_files = glob.glob(f"{READDIR}/*.R1.fastq.gz")
 SAMPLES = [os.path.basename(f).replace(".R1.fastq.gz", "") for f in r1_files]
+INTERVALS = [f"chr{i}" for i in range(1, 23)] + ["chrX"]
 
 rule all:
     input:
-        # Quality control outputs
         expand("fastqc/pre/{sample}.R1_fastqc.html", sample=SAMPLES),
         expand("fastqc/pre/{sample}.R2_fastqc.html", sample=SAMPLES),
         expand("fastqc/post/{sample}.R1_paired_fastqc.html", sample=SAMPLES),
         expand("fastqc/post/{sample}.R2_paired_fastqc.html", sample=SAMPLES),
-        # Trimming outputs
         expand("trimmed/{sample}.R1_paired.fastq.gz", sample=SAMPLES),
         expand("trimmed/{sample}.R2_paired.fastq.gz", sample=SAMPLES),
-        # Alignment and processing outputs
         expand("ubam/{sample}.ubam.bam", sample=SAMPLES),
         expand("alignment/{sample}.merged.bam", sample=SAMPLES),
         expand("dedup/{sample}.dedup.bam", sample=SAMPLES),
         expand("bqsr/{sample}.recalibrated.bam", sample=SAMPLES),
-        # Variant calling outputs
         expand("gvcfs/{sample}.g.vcf.gz", sample=SAMPLES),
-        # Joint genotyping final output
-        "joint_genotyping/genotyped.vcf.gz",
-        # Gene expression analysis outputs
+        expand("joint_genotyping/genomicsdb/{interval}", interval=INTERVALS),
+        expand("joint_genotyping/genotyped.{interval}.vcf.gz", interval=INTERVALS),
         expand("feature_counts/{sample}.txt", sample=SAMPLES),
-        expand("feature_counts/{sample}.stats.txt", sample=SAMPLES),  # Fixed missing comma
+        expand("feature_counts/{sample}.stats.txt", sample=SAMPLES),
+        "joint_genotyping/genotyped.vcf.gz",
         "joint_genotyping/genotyped.filtered.vqsr.vcf.gz"
 
 rule bwa_index:
@@ -258,38 +258,6 @@ rule haplotype_caller:
             -O {output.gvcf} -ERC GVCF 2>&1 | tee {log}
         """
 
-rule genomicsdb_import:
-    input:
-        gvcfs=expand("gvcfs/{sample}.g.vcf.gz", sample=SAMPLES),
-        gvcf_indices=expand("gvcfs/{sample}.g.vcf.gz.tbi", sample=SAMPLES)
-    output:
-        directory("joint_genotyping/genomicsdb")
-    log:
-        "logs/genomicsdb_import.log"
-    shell:
-        """
-        mkdir -p joint_genotyping logs
-        gatk GenomicsDBImport \
-            --genomicsdb-workspace-path {output} \
-            {" ".join(["-V " + vcf for vcf in input.gvcfs])} \
-            2>&1 | tee {log}
-        """
-
-rule genotype_gvcfs:
-    input:
-        db_dir="joint_genotyping/genomicsdb",
-        fasta=get_ref_genome()
-    output:
-        "joint_genotyping/genotyped.vcf.gz"
-    log:
-        "logs/genotype_gvcfs.log"
-    shell:
-        """
-        mkdir -p logs
-        gatk GenotypeGVCFs -R {input.fasta} \
-            -V gendb://{input.db_dir} -O {output} \
-            2>&1 | tee {log}
-        """
 
 rule featurecounts:
     input:
@@ -337,6 +305,55 @@ rule summarize_featurecounts:
         }}' {input.counts} > {output.stats}
         """
 
+rule genomicsdb_import:
+    input:
+        gvcfs=expand("gvcfs/{sample}.g.vcf.gz", sample=SAMPLES),
+        gvcf_indices=expand("gvcfs/{sample}.g.vcf.gz.tbi", sample=SAMPLES)
+    output:
+        db=directory("joint_genotyping/genomicsdb/{interval}")
+    log:
+        "logs/genomicsdb_import/{interval}.log"
+    params:
+        gvcf_args=lambda wildcards, input: " ".join(f"-V {vcf}" for vcf in input.gvcfs)
+    shell:
+        """
+        mkdir -p joint_genotyping/genomicsdb/ logs/genomicsdb_import
+        gatk GenomicsDBImport \
+            --genomicsdb-workspace-path {output.db} \
+            {params.gvcf_args} \
+            -L {wildcards.interval} \
+            2>&1 | tee {log}
+        """
+
+rule genotype_gvcfs:
+    input:
+        db_dir="joint_genotyping/genomicsdb/{interval}",
+        fasta=get_ref_genome()
+    output:
+        vcf="joint_genotyping/genotyped.{interval}.vcf.gz"
+    log:
+        "logs/genotype_gvcfs/{interval}.log"
+    shell:
+        """
+        mkdir -p logs/genotype_gvcfs
+        gatk GenotypeGVCFs -R {input.fasta} \
+            -V gendb://{input.db_dir} -O {output.vcf} \
+            2>&1 | tee {log}
+        """
+
+rule concat_vcfs:
+    input:
+        vcfs=expand("joint_genotyping/genotyped.{interval}.vcf.gz", interval=INTERVALS)
+    output:
+        vcf="joint_genotyping/genotyped.vcf.gz"
+    log:
+        "logs/concat_vcfs.log"
+    shell:
+        """
+        bcftools concat -Oz -o {output.vcf} {input.vcfs}
+        tabix -p vcf {output.vcf}
+        """
+        
 rule variant_recalibrator_snps:
     input:
         vcf="joint_genotyping/genotyped.vcf.gz",
