@@ -79,10 +79,10 @@ snakemake --cores {cores}
 2. **Read Preprocessing**: Trimmomatic adapter removal and quality trimming  
 3. **Alignment**: BWA-MEM alignment with read group information  
 4. **BAM Processing**: Duplicate marking and base quality score recalibration (BQSR).
-8. **Somatic Variant Calling**: Tumor-only variant detection with Mutect2, using panel of normals (PoN) and gnomAD population database  
-9. **Somatic Filtering and Modeling**: Contamination estimation, orientation bias modeling, and filtering via FilterMutectCalls  
-10. **Somatic Annotation**: Functional annotation of filtered somatic variants using Funcotator  
-11. **Gene Expression Quantification**: Gene-level count matrix generation with FeatureCounts
+5. **Somatic Variant Calling**: Tumor-only variant detection with Mutect2, using panel of normals (PoN) and gnomAD population database  
+6. **Somatic Filtering and Modeling**: Contamination estimation, orientation bias modeling, and filtering via FilterMutectCalls  
+7. **Somatic Annotation**: Functional annotation of filtered somatic variants using Funcotator  
+8. **Gene Expression Quantification**: Gene-level count matrix generation with FeatureCounts
 
 The FASTQ2VCF pipeline generates the following output files for each sample and reference genome combination:
 - Raw FASTQ QC: `fastqc/pre/{sample}.R1_fastqc.html`, `fastqc/pre/{sample}.R2_fastqc.html`
@@ -107,8 +107,7 @@ The FASTQ2VCF pipeline generates the following output files for each sample and 
 - Custom Statistics: `feature_counts/{sample}.stats.txt`
 > [!NOTE]
 > Currently, the custom statistics reported are total genes, average length of gene, and average read count per gene. This is not normalized and does not account for GC content.
-> [!IMPORTANT]
-> Variant filtering uses VQSR (Variant Quality Score Recalibration) with standard GATK resources. SNPs are filtered at 99.5% sensitivity and INDELs at 99.0% sensitivity. The final output `genotyped.filtered.vqsr.vcf.gz` contains high-quality variants suitable for downstream analysis.
+
 - Somatic Variation Unfiltered Mutect2 VCF: `mutect2/{sample}.unfiltered.vcf.gz`, `mutect2/{sample}.unfiltered.vcf.gz.tbi`
 - Somatic Variation  F1R2 Artifact Metrics: `mutect2/{sample}.f1r2.tar.gz` (used for orientation bias modeling)
 - Somatic Variation  Orientation Model: `mutect2/{sample}.read-orientation-model.tar.gz`
