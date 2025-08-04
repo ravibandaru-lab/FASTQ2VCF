@@ -11,18 +11,8 @@ KNOWN_SITES = [
     "reference/known_indels.vcf.gz"
 ]
 
-# VQSR Resources
-VQSR_RESOURCES = {
-    "hapmap": "reference/hapmap.vcf.gz",
-    "omni": "reference/omni.vcf.gz",
-    "1000g": "reference/1000G.vcf.gz",
-    "dbsnp": "reference/known_sites.vcf.gz",
-    "mills": "reference/known_indels.vcf.gz"
-}
-
 PON = "reference/1000g_pon.vcf.gz"
 GNOMAD_AF = "reference/gnomad_af_only.vcf.gz"
-
 
 # Default settings
 THREADS = 4
@@ -55,16 +45,13 @@ rule all:
         expand("alignment/{sample}.merged.bam", sample=SAMPLES),
         expand("dedup/{sample}.dedup.bam", sample=SAMPLES),
         expand("bqsr/{sample}.recalibrated.bam", sample=SAMPLES),
-        expand("gvcfs/{sample}.g.vcf.gz", sample=SAMPLES),
-        expand("joint_genotyping/genomicsdb/{interval}", interval=INTERVALS),
-        expand("joint_genotyping/genotyped.{interval}.vcf.gz", interval=INTERVALS),
         expand("feature_counts/{sample}.txt", sample=SAMPLES),
         expand("feature_counts/{sample}.stats.txt", sample=SAMPLES),
         expand("mutect2/{sample}.unfiltered.vcf.gz", sample=SAMPLES),
         expand("mutect2/{sample}.filtered.vcf.gz", sample=SAMPLES),
         expand("mutect2/{sample}.funcotated.vcf.gz", sample=SAMPLES),
-        "joint_genotyping/genotyped.vcf.gz",
-        "joint_genotyping/genotyped.filtered.vqsr.vcf.gz"
+        expand("metrics/{sample}.alignment_summary_metrics.txt", sample=SAMPLES),
+        "multiqc_report/multiqc_report.html"
 
 rule bwa_index:
     input:
@@ -249,24 +236,6 @@ rule apply_bqsr:
         samtools index -b {output.bam} {output.bai}
         """
 
-rule haplotype_caller:
-    input:
-        bam="bqsr/{sample}.recalibrated.bam",
-        bai="bqsr/{sample}.recalibrated.bam.bai",
-        fasta=get_ref_genome()
-    output:
-        gvcf="gvcfs/{sample}.g.vcf.gz",
-        gvcf_index="gvcfs/{sample}.g.vcf.gz.tbi"
-    log:
-        "logs/haplotype_caller/{sample}.log"
-    shell:
-        """
-        mkdir -p gvcfs logs/haplotype_caller
-        gatk HaplotypeCaller -R {input.fasta} -I {input.bam} \
-            -O {output.gvcf} -ERC GVCF 2>&1 | tee {log}
-        """
-
-
 rule featurecounts:
     input:
         bam = "bqsr/{sample}.recalibrated.bam",
@@ -311,162 +280,6 @@ rule summarize_featurecounts:
                 print "No expressed genes found"
             }}
         }}' {input.counts} > {output.stats}
-        """
-
-rule genomicsdb_import:
-    input:
-        gvcfs=expand("gvcfs/{sample}.g.vcf.gz", sample=SAMPLES),
-        gvcf_indices=expand("gvcfs/{sample}.g.vcf.gz.tbi", sample=SAMPLES)
-    output:
-        db=directory("joint_genotyping/genomicsdb/{interval}")
-    log:
-        "logs/genomicsdb_import/{interval}.log"
-    params:
-        gvcf_args=lambda wildcards, input: " ".join(f"-V {vcf}" for vcf in input.gvcfs)
-    shell:
-        """
-        mkdir -p joint_genotyping/genomicsdb/ logs/genomicsdb_import
-        gatk GenomicsDBImport \
-            --genomicsdb-workspace-path {output.db} \
-            {params.gvcf_args} \
-            -L {wildcards.interval} \
-            2>&1 | tee {log}
-        """
-
-rule genotype_gvcfs:
-    input:
-        db_dir="joint_genotyping/genomicsdb/{interval}",
-        fasta=get_ref_genome()
-    output:
-        vcf="joint_genotyping/genotyped.{interval}.vcf.gz"
-    log:
-        "logs/genotype_gvcfs/{interval}.log"
-    shell:
-        """
-        mkdir -p logs/genotype_gvcfs
-        gatk GenotypeGVCFs -R {input.fasta} \
-            -V gendb://{input.db_dir} -O {output.vcf} \
-            2>&1 | tee {log}
-        """
-
-rule concat_vcfs:
-    input:
-        vcfs=expand("joint_genotyping/genotyped.{interval}.vcf.gz", interval=INTERVALS)
-    output:
-        vcf="joint_genotyping/genotyped.vcf.gz"
-    log:
-        "logs/concat_vcfs.log"
-    shell:
-        """
-        bcftools concat -Oz -o {output.vcf} {input.vcfs}
-        tabix -p vcf {output.vcf}
-        """
-        
-rule variant_recalibrator_snps:
-    input:
-        vcf="joint_genotyping/genotyped.vcf.gz",
-        fasta=get_ref_genome(),
-        hapmap=VQSR_RESOURCES["hapmap"],
-        omni=VQSR_RESOURCES["omni"],
-        g1000=VQSR_RESOURCES["1000g"],
-        dbsnp=VQSR_RESOURCES["dbsnp"]
-    output:
-        recal="joint_genotyping/recalibrate_SNP.recal",
-        tranches="joint_genotyping/recalibrate_SNP.tranches",
-        plots="joint_genotyping/recalibrate_SNP.plots.R"
-    log:
-        "logs/vqsr/variant_recalibrator_snps.log"
-    shell:
-        """
-        mkdir -p joint_genotyping logs/vqsr
-        gatk VariantRecalibrator \
-            -R {input.fasta} \
-            -V {input.vcf} \
-            --resource:hapmap,known=false,training=true,truth=true,prior=15.0 {input.hapmap} \
-            --resource:omni,known=false,training=true,truth=true,prior=12.0 {input.omni} \
-            --resource:1000G,known=false,training=true,truth=false,prior=10.0 {input.g1000} \
-            --resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {input.dbsnp} \
-            -an QD -an MQRankSum -an ReadPosRankSum -an FS -an SOR -an MQ \
-            -mode SNP \
-            -O {output.recal} \
-            --tranches-file {output.tranches} \
-            --rscript-file {output.plots} \
-            2>&1 | tee {log}
-        """
-
-rule apply_vqsr_snps:
-    input:
-        vcf="joint_genotyping/genotyped.vcf.gz",
-        recal="joint_genotyping/recalibrate_SNP.recal",
-        tranches="joint_genotyping/recalibrate_SNP.tranches",
-        fasta=get_ref_genome()
-    output:
-        vcf_filtered="joint_genotyping/genotyped.filtered.snps.vcf.gz"
-    log:
-        "logs/vqsr/apply_vqsr_snps.log"
-    shell:
-        """
-        gatk ApplyVQSR \
-            -R {input.fasta} \
-            -V {input.vcf} \
-            --recal-file {input.recal} \
-            --tranches-file {input.tranches} \
-            --truth-sensitivity-filter-level 99.5 \
-            --create-output-variant-index true \
-            -mode SNP \
-            -O {output.vcf_filtered} \
-            2>&1 | tee {log}
-        """
-
-rule variant_recalibrator_indels:
-    input:
-        vcf="joint_genotyping/genotyped.filtered.snps.vcf.gz",
-        fasta=get_ref_genome(),
-        mills=VQSR_RESOURCES["mills"],
-        dbsnp=VQSR_RESOURCES["dbsnp"]
-    output:
-        recal="joint_genotyping/recalibrate_INDEL.recal",
-        tranches="joint_genotyping/recalibrate_INDEL.tranches",
-        plots="joint_genotyping/recalibrate_INDEL.plots.R"
-    log:
-        "logs/vqsr/variant_recalibrator_indels.log"
-    shell:
-        """
-        gatk VariantRecalibrator \
-            -R {input.fasta} \
-            -V {input.vcf} \
-            --resource:mills,known=false,training=true,truth=true,prior=12.0 {input.mills} \
-            --resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {input.dbsnp} \
-            -an QD -an MQRankSum -an ReadPosRankSum -an FS -an SOR \
-            -mode INDEL \
-            -O {output.recal} \
-            --tranches-file {output.tranches} \
-            --rscript-file {output.plots} \
-            2>&1 | tee {log}
-        """
-
-rule apply_vqsr_indels:
-    input:
-        vcf="joint_genotyping/genotyped.filtered.snps.vcf.gz",
-        recal="joint_genotyping/recalibrate_INDEL.recal",
-        tranches="joint_genotyping/recalibrate_INDEL.tranches",
-        fasta=get_ref_genome()
-    output:
-        vcf_filtered="joint_genotyping/genotyped.filtered.vqsr.vcf.gz"
-    log:
-        "logs/vqsr/apply_vqsr_indels.log"
-    shell:
-        """
-        gatk ApplyVQSR \
-            -R {input.fasta} \
-            -V {input.vcf} \
-            --recal-file {input.recal} \
-            --tranches-file {input.tranches} \
-            --truth-sensitivity-filter-level 99.0 \
-            --create-output-variant-index true \
-            -mode INDEL \
-            -O {output.vcf_filtered} \
-            2>&1 | tee {log}
         """
 
 rule mutect2:
@@ -590,5 +403,41 @@ rule funcotator:
             --output-file-format VCF \
             --data-sources-path {FUNCOTATOR_DS} \
             --ref-version hg38 \
+            2>&1 | tee {log}
+        """
+
+rule alignment_metrics:
+    input:
+        bam="bqsr/{sample}.recalibrated.bam",
+        bai="bqsr/{sample}.recalibrated.bam.bai",
+        fasta=get_ref_genome()
+    output:
+        metrics="metrics/{sample}.alignment_summary_metrics.txt"
+    log:
+        "logs/picard_metrics/{sample}.alignment_metrics.log"
+    shell:
+        """
+        mkdir -p metrics logs/picard_metrics
+        picard CollectAlignmentSummaryMetrics \
+            R={input.fasta} \
+            I={input.bam} \
+            O={output.metrics} \
+            2>&1 | tee {log}
+        """
+
+rule multiqc:
+    input:
+        fastqc_pre=expand("fastqc/pre/{sample}.R1_fastqc.html", sample=SAMPLES),
+        fastqc_post=expand("fastqc/post/{sample}.R1_paired_fastqc.html", sample=SAMPLES),
+        alignment_metrics=expand("metrics/{sample}.alignment_summary_metrics.txt", sample=SAMPLES),
+        feature_counts=expand("feature_counts/{sample}.txt.summary", sample=SAMPLES)
+    output:
+        html="multiqc_report/multiqc_report.html"
+    log:
+        "logs/multiqc/multiqc.log"
+    shell:
+        """
+        mkdir -p multiqc_report logs/multiqc
+        multiqc fastqc/pre fastqc/post metrics feature_counts -o multiqc_report \
             2>&1 | tee {log}
         """

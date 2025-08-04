@@ -52,18 +52,6 @@ tabix -p vcf reference/known_sites.vcf.gz
 wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz -O reference/known_indels.vcf.gz
 wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz.tbi -O reference/known_indels.vcf.gz.tbi
 
-#1000G
-wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/1000G_phase1.snps.high_confidence.hg38.vcf.gz -O reference/1000G.vcf.gz
-wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/1000G_phase1.snps.high_confidence.hg38.vcf.gz.tbi -O reference/1000G.vcf.gz.tbi
-
-# HapMap
-wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/hapmap_3.3.hg38.vcf.gz -O reference/hapmap.vcf.gz
-wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/hapmap_3.3.hg38.vcf.gz.tbi -O reference/hapmap.vcf.gz.tbi
-
-# Omni
-wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/1000G_omni2.5.hg38.vcf.gz -O reference/omni.vcf.gz
-wget https://storage.googleapis.com/genomics-public-data/resources/broad/hg38/v0/1000G_omni2.5.hg38.vcf.gz.tbi -O reference/omni.vcf.gz.tbi
-
 # gnomAD Germline Resource
 wget https://storage.googleapis.com/gatk-best-practices/somatic-hg38/af-only-gnomad.hg38.vcf.gz -O reference/gnomad_af_only.vcf.gz
 wget https://storage.googleapis.com/gatk-best-practices/somatic-hg38/af-only-gnomad.hg38.vcf.gz.tbi -O reference/gnomad_af_only.vcf.gz.tbi
@@ -90,17 +78,13 @@ snakemake --cores {cores}
 1. **Quality Control**: FastQC analysis before and after trimming  
 2. **Read Preprocessing**: Trimmomatic adapter removal and quality trimming  
 3. **Alignment**: BWA-MEM alignment with read group information  
-4. **BAM Processing**: Duplicate marking and base quality score recalibration (BQSR)  
-5. **Germline Variant Calling**: HaplotypeCaller in GVCF mode  
-6. **Joint Genotyping**: GenomicsDBImport followed by GenotypeGVCFs  
-7. **Variant Filtering (Germline)**: VQSR for both SNPs and INDELs  
+4. **BAM Processing**: Duplicate marking and base quality score recalibration (BQSR).
 8. **Somatic Variant Calling**: Tumor-only variant detection with Mutect2, using panel of normals (PoN) and gnomAD population database  
 9. **Somatic Filtering and Modeling**: Contamination estimation, orientation bias modeling, and filtering via FilterMutectCalls  
 10. **Somatic Annotation**: Functional annotation of filtered somatic variants using Funcotator  
 11. **Gene Expression Quantification**: Gene-level count matrix generation with FeatureCounts
 
 The FASTQ2VCF pipeline generates the following output files for each sample and reference genome combination:
-
 - Raw FASTQ QC: `fastqc/pre/{sample}.R1_fastqc.html`, `fastqc/pre/{sample}.R2_fastqc.html`
 - Post-trimming FASTQC: `fastqc/post/{sample}.R1_paired_fastqc.html`, `fastqc/post/{sample}.R2_paired_fastqc.html`
 
@@ -123,12 +107,6 @@ The FASTQ2VCF pipeline generates the following output files for each sample and 
 - Custom Statistics: `feature_counts/{sample}.stats.txt`
 > [!NOTE]
 > Currently, the custom statistics reported are total genes, average length of gene, and average read count per gene. This is not normalized and does not account for GC content.
-- Germline Variation GVCF Output for Each Sample: `gvcfs/{sample}.g.vcf.gz`, `gvcfs/{sample}.g.vcf.gz.tbi`
-- Germline Variation Joint Calling Output: `joint_genotyping/genotyped.vcf.gz`, `joint_genotyping/genotyped.{chrom}.vcf.gz`
-- Germline Variation VQSR Intermediate Files:
-  - Germline Variation SNP-filtered VCF: `joint_genotyping/genotyped.filtered.snps.vcf.gz`
-  - Germline Variation VQSR recalibration files: `joint_genotyping/recalibrate_SNP.*`, `joint_genotyping/recalibrate_INDEL.*`
-- Germline Variation Final VQSR-Filtered VCF: `joint_genotyping/genotyped.filtered.vqsr.vcf.gz`
 > [!IMPORTANT]
 > Variant filtering uses VQSR (Variant Quality Score Recalibration) with standard GATK resources. SNPs are filtered at 99.5% sensitivity and INDELs at 99.0% sensitivity. The final output `genotyped.filtered.vqsr.vcf.gz` contains high-quality variants suitable for downstream analysis.
 - Somatic Variation Unfiltered Mutect2 VCF: `mutect2/{sample}.unfiltered.vcf.gz`, `mutect2/{sample}.unfiltered.vcf.gz.tbi`
